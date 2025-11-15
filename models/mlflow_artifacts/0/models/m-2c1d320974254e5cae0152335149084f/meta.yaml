@@ -1,0 +1,10 @@
+artifact_location: file:///E:/Pet%20Projects/Kaggle%20Playground/binary_classification_bank/models/mlflow_artifacts/0/models/m-2c1d320974254e5cae0152335149084f/artifacts
+creation_timestamp: 1762955973707
+experiment_id: '0'
+last_updated_timestamp: 1762955977329
+model_id: m-2c1d320974254e5cae0152335149084f
+model_type: null
+name: xgb_model
+source_run_id: b71638bc8cb8458984fbb95e761ef3e0
+status: 2
+status_message: null
