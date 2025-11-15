@@ -1,0 +1,20 @@
+name: binary_classification_bank
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pandas=1.5.3
+  - numpy=1.25.0
+  - typer=0.8.0
+  - loguru=0.7.0
+  - tqdm=4.65.0
+  - pytest=7.4.0
+  - scikit-learn=1.7.2
+  - matplotlib=3.7.1
+  - seaborn=0.13.2
+  - pip
+  - pip:
+    - ruff==0.14.1
+    - python-dotenv==1.0.0
+    - mkdocs==1.5.2
+    - -e .
