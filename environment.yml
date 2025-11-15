@@ -1,0 +1,25 @@
+name: binary_classification_bank
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pandas=1.5.3
+  - numpy=1.25.0
+  - typer
+  - loguru
+  - tqdm
+  - pytest=7.4.0
+  - scikit-learn=1.7.2
+  - matplotlib=3.7.1
+  - seaborn=0.13.2
+  - optuna=4.5.0
+  - databricks-cli
+  - mlflow=3.5.0
+  - xgboost=3.1.1
+  - pip
+  - pip:
+    - ruff==0.14.1
+    - python-dotenv==1.0.0
+    - mkdocs==1.5.2
+    - optuna-integration[mlflow]
+    - -e .
