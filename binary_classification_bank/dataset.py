@@ -1,27 +1,25 @@
-from pathlib import Path
 
-from loguru import logger
 import numpy as np
 import pandas as pd
+from config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR, RAW_DATA_DIR
+from data_io import load_dataset, save_dataset
+from loguru import logger
 from sklearn.model_selection import train_test_split
-from tqdm import tqdm
-import typer
-
-from binary_classification_bank.config import INTERIM_DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR
-from binary_classification_bank.data_io import load_config, load_dataset, save_dataset
-
-app = typer.Typer()
-
 
 # ------ Обработка выбросов ---------------------------------------------
-@app.command()
-def handle_outliers_log(path_raw: Path = RAW_DATA_DIR, path_interrim: Path = INTERIM_DATA_DIR):
-    typer.secho("Начинается обработка выбросов логарифмическим методом")
+
+
+def handle_outliers_log(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Обработка выбросов логарифмическим методом для всех числовых колонок.
+    Возвращает очищенный DataFrame.
+    """
+    logger.info("Начинается обработка выбросов логарифмическим методом")
     try:
-        df = load_dataset(path_raw, "data.csv")
         numeric_cols = df.select_dtypes(include=["number"]).columns
         df_clean = df.copy()
         shape_before = df_clean.shape[0]
+
         for col in numeric_cols:
             # Пропускаем отрицательные и нулевые значения для логарифма
             if (df_clean[col] <= 0).any():
@@ -43,27 +41,31 @@ def handle_outliers_log(path_raw: Path = RAW_DATA_DIR, path_interrim: Path = INT
             upper_bound = np.exp(upper_bound_log)
 
             # Фильтрация выбросов по исходным данным
-            df_clean = df_clean[(df_clean[col] >= lower_bound) & (df_clean[col] <= upper_bound)]
+            df_clean = df_clean[
+                (df_clean[col] >= lower_bound) & (df_clean[col] <= upper_bound)
+            ]
+
         shape_after = df_clean.shape[0]
-        typer.secho(
+        logger.info(
             f"Оставлено {shape_after / shape_before * 100:.2f}% строк после удаления выбросов"
         )
-        save_dataset(df_clean, path_interrim, "no_outliers.csv")
+        return df_clean
+
     except Exception as e:
-        typer.secho(f"Ошибка при обработке выбросов: {e}", fg=typer.colors.RED)
-    else:
-        typer.secho("Обработка выбросов завершена успешно", fg=typer.colors.GREEN)
-    # ---------------------------------------------------------------------------------
+        logger.error(f"Ошибка при обработке выбросов: {e}")
+        raise
 
 
 # ----------------- Оптимизация типов для числовых данных ------------------------
 
 
-@app.command()
-def optimize_numeric_types(path_interrim: Path = INTERIM_DATA_DIR, margin: float = 0.9):
-    typer.secho("Начинается оптимизация типов числовых данных")
+def optimize_numeric_types(df: pd.DataFrame, margin: float = 0.9) -> pd.DataFrame:
+    """
+    Оптимизация типов числовых данных для уменьшения потребления памяти.
+    Возвращает DataFrame с оптимизированными типами.
+    """
+    logger.info("Начинается оптимизация типов числовых данных")
     try:
-        df = load_dataset(path_interrim, "no_outliers.csv")
         numerics = [
             "int16",
             "int32",
@@ -75,6 +77,7 @@ def optimize_numeric_types(path_interrim: Path = INTERIM_DATA_DIR, margin: float
             "uint32",
             "uint64",
         ]
+
         for col in df.columns:
             col_type = df[col].dtypes
 
@@ -95,10 +98,6 @@ def optimize_numeric_types(path_interrim: Path = INTERIM_DATA_DIR, margin: float
                         np.iinfo(np.int32).min * margin,
                         np.iinfo(np.int32).max * margin,
                     )
-                    int64_min, int64_max = (
-                        np.iinfo(np.int64).min * margin,
-                        np.iinfo(np.int64).max * margin,
-                    )
 
                     if int8_min <= c_min and c_max <= int8_max:
                         df[col] = df[col].astype(np.int8)
@@ -106,9 +105,9 @@ def optimize_numeric_types(path_interrim: Path = INTERIM_DATA_DIR, margin: float
                         df[col] = df[col].astype(np.int16)
                     elif int32_min <= c_min and c_max <= int32_max:
                         df[col] = df[col].astype(np.int32)
-                    elif int64_min <= c_min and c_max <= int64_max:
-                        df[col] = df[col].astype(np.int64)
-                else:
+                    # else оставляем int64 по умолчанию
+
+                else:  # float
                     float16_min, float16_max = (
                         np.finfo(np.float16).min * margin,
                         np.finfo(np.float16).max * margin,
@@ -122,13 +121,14 @@ def optimize_numeric_types(path_interrim: Path = INTERIM_DATA_DIR, margin: float
                         df[col] = df[col].astype(np.float16)
                     elif float32_min <= c_min and c_max <= float32_max:
                         df[col] = df[col].astype(np.float32)
-                    else:
-                        df[col] = df[col].astype(np.float64)
-        save_dataset(df, path_interrim, "opt_types.csv")
+                    # else оставляем float64
+
+        logger.info("Оптимизация типов числовых данных выполнена успешно")
+        return df
+
     except Exception as e:
-        typer.secho(f"Ошибка при оптимизации типов числовых данных: {e}", fg=typer.colors.RED)
-    else:
-        typer.secho("Оптимизация типов числовых данных выполнена успешно", fg=typer.colors.GREEN)
+        logger.error(f"Ошибка при оптимизации типов числовых данных: {e}")
+        raise
 
 
 # -----------------------------------------
@@ -136,48 +136,54 @@ def optimize_numeric_types(path_interrim: Path = INTERIM_DATA_DIR, margin: float
 # ------------- Разделение на признаки и целевую переменную ----------------------------
 
 
-@app.command()
-def split_features_target(path_interrim: Path = INTERIM_DATA_DIR, target_col: str = "y"):
-    typer.secho("Начинается разделение признаков и целевой переменной")
+def split_features_target(
+    df: pd.DataFrame, target_col: str
+) -> tuple[pd.DataFrame, pd.Series]:
+    """
+    Разделяет DataFrame на признаки (X) и целевую переменную (y).
+    Возвращает (features, target).
+    """
+    logger.info("Начинается разделение признаков и целевой переменной")
     try:
-        df = load_dataset(path_interrim, "opt_types.csv")
-
         features = df.drop([target_col], axis=1)
         target = df[target_col]
-        save_dataset(features, path_interrim, "features.csv")
-        save_dataset(target, path_interrim, "target.csv")
+        logger.info("Разделение признаков и целевой переменной выполнено успешно")
+        return features, target
+
     except Exception as e:
-        typer.secho(
-            f"Ошибка при разделении признаков и целевой переменной: {e}", fg=typer.colors.RED
-        )
-    else:
-        typer.secho(
-            "Разделение признаков и целевой переменной выполнено успешно", fg=typer.colors.GREEN
-        )
-    # -----------------------------------------
+        logger.error(f"Ошибка при разделении признаков и целевой переменной: {e}")
+        raise
 
 
-@app.command()
+# -----------------------------------------
+
+
 def split_train_val_test(
-    path_interrim: Path = INTERIM_DATA_DIR,
-    path_processed: Path = PROCESSED_DATA_DIR,
+    features: pd.DataFrame,
+    target: pd.Series,
     test_size: float = 0.4,
     val_size: float = 0.5,
     random_state: int = 42,
     stratify_target: bool = True,
-):
-    typer.secho("Начинается разделение данных на train, val и test")
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
+    """
+    Разделяет данные на train, val и test.
+    Возвращает:
+      (features_train, features_val, features_test,
+       target_train, target_val, target_test)
+    """
+    logger.info("Начинается разделение данных на train, val и test")
     try:
-        features = load_dataset(path_interrim, "features.csv")
-        target = load_dataset(path_interrim, "target.csv")
         stratify_param = target if stratify_target else None
 
-        features_train, features_val_test, target_train, target_val_test = train_test_split(
-            features,
-            target,
-            random_state=random_state,
-            test_size=test_size,
-            stratify=stratify_param,
+        features_train, features_val_test, target_train, target_val_test = (
+            train_test_split(
+                features,
+                target,
+                random_state=random_state,
+                test_size=test_size,
+                stratify=stratify_param,
+            )
         )
 
         stratify_val = target_val_test if stratify_target else None
@@ -190,45 +196,90 @@ def split_train_val_test(
             stratify=stratify_val,
         )
 
-        save_dataset(features_train, path_interrim, "features_train.csv")
-        save_dataset(features_val, path_interrim, "features_val.csv")
-        save_dataset(features_test, path_interrim, "features_test.csv")
-        save_dataset(target_train, path_interrim, "target_train.csv")
-        save_dataset(target_val, path_interrim, "target_val.csv")
-        save_dataset(target_test, path_interrim, "target_test.csv")
+        logger.info("Данные успешно разделены на train, val и test")
+        return (
+            features_train,
+            features_val,
+            features_test,
+            target_train,
+            target_val,
+            target_test,
+        )
 
-        save_dataset(target_train, path_processed, "target_train.csv")
-        save_dataset(target_val, path_processed, "target_val.csv")
-        save_dataset(target_test, path_processed, "target_test.csv")
     except Exception as e:
-        typer.secho(f"Ошибка при разделении данных: {e}", fg=typer.colors.RED)
-    else:
-        typer.secho("Данные успешно разделены на train, val и test", fg=typer.colors.GREEN)
+        logger.error(f"Ошибка при разделении данных: {e}")
+        raise
 
 
 # ------------------------------------------------
 
 
-@app.command()
-def main(
-    margin: float = 0.9,
+def run_dataset_pipeline(
     target_col: str = "y",
     test_size: float = 0.4,
     val_size: float = 0.5,
     random_state: int = 42,
     stratify_target: bool = True,
+    margin: float = 0.9,
 ):
-    path_raw: Path = RAW_DATA_DIR
-    path_interrim: Path = INTERIM_DATA_DIR
-    path_processed: Path = PROCESSED_DATA_DIR
+    """
+    Полный пайплайн обработки данных:
+      1. Загрузка raw
+      2. Обработка выбросов
+      3. Оптимизация типов
+      4. Разделение на X и y
+      5. Разделение на train/val/test
+      6. Сохранение в interim и processed
+    """
+    path_raw = RAW_DATA_DIR
+    path_interim = INTERIM_DATA_DIR
+    path_processed = PROCESSED_DATA_DIR
 
-    handle_outliers_log(path_raw, path_interrim)
-    optimize_numeric_types(path_interrim, margin)
-    split_features_target(path_interrim, target_col)
-    split_train_val_test(
-        path_interrim, path_processed, test_size, val_size, random_state, stratify_target
+    # 1. Загрузка
+    df = load_dataset(path_raw, "data.csv")
+    if df is None:
+        raise RuntimeError("Не удалось загрузить данные из data.csv")
+
+    # 2. Выбросы
+    df_clean = handle_outliers_log(df)
+    save_dataset(df_clean, path_interim, "no_outliers.csv")
+
+    # 3. Оптимизация типов
+    df_opt = optimize_numeric_types(df_clean, margin)
+    save_dataset(df_opt, path_interim, "opt_types.csv")
+
+    # 4. X и y
+    features, target = split_features_target(df_opt, target_col)
+    save_dataset(features, path_interim, "features.csv")
+    save_dataset(target, path_interim, "target.csv")
+
+    # 5. Train/val/test
+    (
+        features_train,
+        features_val,
+        features_test,
+        target_train,
+        target_val,
+        target_test,
+    ) = split_train_val_test(
+        features,
+        target,
+        test_size=test_size,
+        val_size=val_size,
+        random_state=random_state,
+        stratify_target=stratify_target,
     )
 
+    # 6. Сохранение
+    save_dataset(features_train, path_interim, "features_train.csv")
+    save_dataset(features_val, path_interim, "features_val.csv")
+    save_dataset(features_test, path_interim, "features_test.csv")
+    save_dataset(target_train, path_interim, "target_train.csv")
+    save_dataset(target_val, path_interim, "target_val.csv")
+    save_dataset(target_test, path_interim, "target_test.csv")
 
-if __name__ == "__main__":
-    app()
+    save_dataset(target_train, path_processed, "target_train.csv")
+    save_dataset(target_val, path_processed, "target_val.csv")
+    save_dataset(target_test, path_processed, "target_test.csv")
+
+    logger.info("Пайплайн обработки данных завершён успешно")
